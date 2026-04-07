@@ -1042,7 +1042,7 @@ class TokenManager:
         """Apaga TODOS os tokens e reseta o sistema. Preserva backup de cookies."""
         self._backup_clearance()
 
-        result = {"status": "success", "details": {"files_deleted": []}}
+        result = {"status": "success", "details": {"files_deleted": [], "runtime_env_cleared": True}}
 
         files_to_delete = [
             POOL_FILE,
@@ -1062,6 +1062,7 @@ class TokenManager:
 
         self.accounts = []
         self.current_index = 0
+        self._env_token = ""
         logger.warning("⚠️ TODOS os tokens foram apagados!")
         return result
 

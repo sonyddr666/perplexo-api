@@ -18,6 +18,16 @@ Se a variável estiver vazia, a API aceita chamadas sem chave.
 4. Use `POST /search_stream` quando quiser streaming incremental.
 5. Chame `POST /clear` ao encerrar o contexto.
 
+## Página de credenciais
+
+Abra `GET /credentials` para usar uma tela simples de operação:
+
+- cadastrar token, cookie string ou JSON de cookies
+- testar a credencial sem exibir o segredo salvo
+- apagar as credenciais locais com um clique
+
+Se `MCP_API_KEY` estiver ativa, informe a chave no topo da página antes de salvar, testar ou apagar.
+
 ## Payload base de busca
 
 ```json

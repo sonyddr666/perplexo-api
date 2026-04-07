@@ -35,7 +35,7 @@ _src_dir = str(Path(__file__).resolve().parent)
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pydantic import BaseModel, Field
@@ -191,8 +191,15 @@ class ClientManager:
         self.session_token = ""
         
     def init_default(self, token: str, extra_cookies: dict = None):
-        self.session_token = token
-        if SCRAPER_AVAILABLE and Perplexity and token and token != "seu_session_token_aqui":
+        self.default_client = None
+        self.location_clients = {}
+        self.session_token = token or ""
+
+        if not token:
+            logger.info("🧹 Cliente Default limpo")
+            return
+
+        if SCRAPER_AVAILABLE and Perplexity and token != "seu_session_token_aqui":
             try:
                 # Lê cookies complementares (cf_clearance, etc.)
                 if extra_cookies is None and token_manager:
@@ -245,6 +252,36 @@ SAVE_TO_LIBRARY_ENABLED = False  # Default: False (Evita erro 403 na VPN)
 def get_active_client():
     """Retorna o cliente ativo do client_manager (sempre atualizado após rotação)"""
     return client_manager.default_client
+
+
+def _runtime_credentials_status() -> Dict[str, Any]:
+    """Status sanitizado para a UI de credenciais."""
+    pool_status = token_manager.get_pool_status() if token_manager else {}
+    return {
+        "configured": bool(token_manager and token_manager.get_current_token()),
+        "client_ready": get_active_client() is not None,
+        "token_count": pool_status.get("total", 0),
+        "has_complementary_cookies": pool_status.get("has_complementary_cookies", False),
+        "cookies_status": pool_status.get("cookies_status", "unknown"),
+        "cookies_updated_at": pool_status.get("cookies_updated_at"),
+        "api_key_required": bool(MCP_API_KEY),
+        "env_fallback_present": bool(os.getenv("PERPLEXITY_SESSION_TOKEN")),
+    }
+
+
+def _credentials_ui_auth_error():
+    """Autenticação leve para a UI de credenciais."""
+    if not MCP_API_KEY:
+        return None
+
+    provided_key = request.headers.get("X-API-Key", "")
+    if provided_key != MCP_API_KEY:
+        return jsonify({
+            "success": False,
+            "message": "Informe a chave administrativa para usar esta página."
+        }), 401
+
+    return None
 
 
 def cleanup_expired_conversations():
@@ -355,6 +392,31 @@ def save_conversation(user_id: str) -> Optional[str]:
     
     logger.info(f"[💾 SAVE] Conversa {conv_id} salva para user_id={user_id} ({len(conversation_messages[user_id])} msgs)")
     return conv_id
+
+
+def reset_runtime_conversations(save_existing: bool = True) -> Dict[str, int]:
+    """
+    Limpa todas as conversas ativas da memória.
+    Opcionalmente persiste o histórico antes de limpar.
+    """
+    saved = 0
+    cleared = len(active_conversations)
+
+    for user_id in list(conversation_messages.keys()):
+        if save_existing and conversation_messages.get(user_id):
+            try:
+                if save_conversation(user_id):
+                    saved += 1
+            except Exception as e:
+                logger.warning(f"Erro ao salvar conversa antes do reset ({user_id}): {e}")
+
+    active_conversations.clear()
+    conversation_message_counts.clear()
+    conversation_messages.clear()
+    conversation_last_activity.clear()
+
+    logger.info(f"🧹 Runtime limpo: {cleared} conversa(s) removida(s), {saved} salva(s)")
+    return {"saved": saved, "cleared": cleared}
 
 
 def list_saved_conversations(user_id: str) -> List[Dict[str, Any]]:
@@ -561,6 +623,131 @@ def health_check():
     })
 
 
+@app.route('/credentials', methods=['GET'])
+def credentials_page():
+    """Página simples para cadastrar, testar e apagar credenciais sem exibir segredos."""
+    return render_template("credentials.html")
+
+
+@app.route('/credentials/api/status', methods=['GET'])
+def credentials_status():
+    auth_error = _credentials_ui_auth_error()
+    if auth_error:
+        return auth_error
+
+    return jsonify({
+        "success": True,
+        "status": _runtime_credentials_status(),
+    })
+
+
+@app.route('/credentials/api/save', methods=['POST'])
+@limiter.limit("10 per minute")
+def credentials_save():
+    auth_error = _credentials_ui_auth_error()
+    if auth_error:
+        return auth_error
+
+    if not token_manager:
+        return jsonify({"success": False, "message": "TokenManager não disponível"}), 503
+
+    data = request.json or {}
+    raw = str(data.get("input", "")).strip()
+    name = str(data.get("name", "")).strip() or None
+
+    if not raw:
+        return jsonify({"success": False, "message": "Cole um token, cookie string ou JSON de cookies."}), 400
+
+    result = token_manager.set_token(
+        raw,
+        name=name,
+        source="credentials_ui",
+        validate=False,
+    )
+
+    if not result.get("success"):
+        return jsonify({
+            "success": False,
+            "message": result.get("message", "Falha ao salvar credencial."),
+        }), 400
+
+    current = token_manager.get_current_token()
+    if current:
+        client_manager.init_default(current)
+
+    runtime = reset_runtime_conversations(save_existing=True)
+    return jsonify({
+        "success": True,
+        "message": "Credencial salva. Clique em testar para validar.",
+        "runtime": runtime,
+        "status": _runtime_credentials_status(),
+    })
+
+
+@app.route('/credentials/api/test', methods=['POST'])
+@limiter.limit("10 per minute")
+def credentials_test():
+    auth_error = _credentials_ui_auth_error()
+    if auth_error:
+        return auth_error
+
+    if not token_manager:
+        return jsonify({"success": False, "message": "TokenManager não disponível"}), 503
+
+    current = token_manager.get_current_token()
+    if not current:
+        client_manager.init_default(None)
+        return jsonify({
+            "success": False,
+            "message": "Nenhuma credencial cadastrada para testar.",
+            "status": _runtime_credentials_status(),
+        }), 400
+
+    is_valid = token_manager.validate_token(current)
+    if is_valid:
+        client_manager.init_default(current)
+        message = "Credencial válida e pronta para uso."
+        status_code = 200
+    else:
+        client_manager.init_default(None)
+        message = "Credencial inválida, expirada ou bloqueada."
+        status_code = 400
+
+    return jsonify({
+        "success": is_valid,
+        "message": message,
+        "status": _runtime_credentials_status(),
+    }), status_code
+
+
+@app.route('/credentials/api/clear', methods=['POST'])
+@limiter.limit("10 per minute")
+def credentials_clear():
+    auth_error = _credentials_ui_auth_error()
+    if auth_error:
+        return auth_error
+
+    runtime = reset_runtime_conversations(save_existing=True)
+
+    details = {}
+    if token_manager:
+        details = token_manager.clear_all_tokens()
+        token_manager._env_token = ""
+
+    global PERPLEXITY_SESSION_TOKEN
+    PERPLEXITY_SESSION_TOKEN = ""
+    os.environ["PERPLEXITY_SESSION_TOKEN"] = ""
+    client_manager.init_default(None)
+
+    return jsonify({
+        "success": True,
+        "message": "Credenciais apagadas do armazenamento local e do runtime atual.",
+        "runtime": runtime,
+        "details": details,
+        "status": _runtime_credentials_status(),
+    })
+
+
 @app.route('/tokens', methods=['GET'])
 @app.route('/tokens/status', methods=['GET'])
 @require_api_key
@@ -609,6 +796,7 @@ def tokens_set():
         current = token_manager.get_current_token()
         if current:
             client_manager.init_default(current)
+        reset_runtime_conversations(save_existing=True)
     
     result["token_preview"] = f"****{result.get('token_id', '????')[-4:]}" if result.get("token_id") else "????"
     result["cookies_count"] = len(token_manager.get_complementary_cookies())
@@ -689,9 +877,14 @@ def tokens_pool():
             client_manager.init_default(result["new_token"])
         return jsonify({"status": "success" if result["success"] else "error", "message": result["message"]})
     elif action == "clear_all":
+        runtime = reset_runtime_conversations(save_existing=True)
         results = token_manager.clear_all_tokens()
+        token_manager._env_token = ""
+        global PERPLEXITY_SESSION_TOKEN
+        PERPLEXITY_SESSION_TOKEN = ""
+        os.environ["PERPLEXITY_SESSION_TOKEN"] = ""
         client_manager.init_default(None)
-        return jsonify({"status": "success", "message": "Todos os tokens apagados", "details": results})
+        return jsonify({"status": "success", "message": "Todos os tokens apagados", "details": results, "runtime": runtime})
     
     return jsonify({"error": f"A\u00e7\u00e3o desconhecida: {action}"}), 400
 
@@ -775,9 +968,14 @@ def tokens_pool_clear_invalid_compat():
 def tokens_clear_all_compat():
     if not token_manager:
         return jsonify({"error": "TokenManager n\u00e3o dispon\u00edvel"}), 503
+    runtime = reset_runtime_conversations(save_existing=True)
     results = token_manager.clear_all_tokens()
+    token_manager._env_token = ""
+    global PERPLEXITY_SESSION_TOKEN
+    PERPLEXITY_SESSION_TOKEN = ""
+    os.environ["PERPLEXITY_SESSION_TOKEN"] = ""
     client_manager.init_default(None)
-    return jsonify({"status": "success", "details": results})
+    return jsonify({"status": "success", "details": results, "runtime": runtime})
 
 
 # ============= CANVAS / FILE HELPERS =============
@@ -1620,6 +1818,7 @@ def config_token():
         if SCRAPER_AVAILABLE and Perplexity:
             PERPLEXITY_SESSION_TOKEN = validated.token
             client_manager.init_default(validated.token)
+            reset_runtime_conversations(save_existing=True)
             logger.info("✅ Cliente Perplexity reinicializado com NOVO token!")
             return jsonify({"success": True, "message": "Token atualizado e cliente reinicializado!"})
         else:

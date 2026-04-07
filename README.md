@@ -17,6 +17,7 @@ API REST para integrar Perplexity em skills, automações e clientes HTTP sem Te
 - Pool de tokens com rotação e refresh
 - Persistência de histórico em `data/conversations`
 - Autenticação opcional com `X-API-Key`
+- Página simples de credenciais em `/credentials`
 
 ## Subir rápido com Docker
 
@@ -38,6 +39,16 @@ docker compose up -d --build
 ```
 
 API disponível em `http://localhost:5000`.
+
+### Página de credenciais
+
+Abra `http://localhost:5000/credentials` para:
+
+- salvar token, cookie string ou JSON de cookies sem reexibir o valor salvo
+- testar a credencial com um clique
+- apagar as credenciais do armazenamento local e do runtime atual
+
+Se `MCP_API_KEY` estiver configurada, a própria página pede a chave administrativa para autorizar as ações.
 
 ## Rodar sem Docker
 

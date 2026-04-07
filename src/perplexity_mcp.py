@@ -64,7 +64,7 @@ limiter = Limiter(
 
 # Session token do Perplexity
 PERPLEXITY_SESSION_TOKEN = os.getenv("PERPLEXITY_SESSION_TOKEN", "")
-MCP_PORT = int(os.getenv("MCP_PORT", 5000))
+MCP_PORT = int(os.getenv("MCP_PORT", 3000))
 
 # API Key para autenticação do MCP Server
 MCP_API_KEY = os.getenv("MCP_API_KEY", "")

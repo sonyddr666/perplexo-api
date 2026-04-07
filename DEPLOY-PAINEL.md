@@ -6,7 +6,7 @@ No Coolify, prefira deploy via `Dockerfile` em vez de stack compose.
 
 Use:
 
-- porta interna `5000`
+- porta interna `3000`
 - health check `/health`
 - volume persistente em `/app/data`
 - variáveis de ambiente definidas pela UI
@@ -24,7 +24,7 @@ Preencha no painel:
 ```env
 PERPLEXITY_SESSION_TOKEN=seu_token
 MCP_API_KEY=sua_chave_opcional
-MCP_PORT=5000
+MCP_PORT=3000
 ```
 
 Se usar a stack com VPN:
@@ -48,13 +48,13 @@ VPN_COUNTRY=Brazil
 ### Healthcheck
 
 ```bash
-curl http://SEU_HOST:5000/health
+curl http://SEU_HOST:3000/health
 ```
 
 ### Busca
 
 ```bash
-curl -X POST http://SEU_HOST:5000/search \
+curl -X POST http://SEU_HOST:3000/search \
   -H "Content-Type: application/json" \
   -H "X-API-Key: sua_chave" \
   -d '{"query":"teste","user_id":"stack-check"}'

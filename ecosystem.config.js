@@ -20,7 +20,7 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         FLASK_ENV: 'production',
-        MCP_PORT: 5000
+        MCP_PORT: 3000
       },
       error_file: 'logs/api-error.log',
       out_file: 'logs/api-out.log',

@@ -123,7 +123,7 @@ Quando há mais de um token no pool:
 
 ### Compose simples
 
-- Expõe a API em `5000`
+- Expõe a API em `3000`
 - Mantém `data/` em volume Docker
 
 ### Compose com VPN

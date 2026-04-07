@@ -69,7 +69,7 @@ O mesmo endpoint aceita `multipart/form-data`. O arquivo é salvo temporariament
 Exemplo:
 
 ```bash
-curl -X POST http://localhost:5000/search \
+curl -X POST http://localhost:3000/search \
   -H "X-API-Key: sua_chave" \
   -F "query=Resuma este contrato" \
   -F "user_id=files-1" \
@@ -113,7 +113,7 @@ Eventos podem incluir:
 ### Atualizar token principal
 
 ```bash
-curl -X POST http://localhost:5000/tokens/set \
+curl -X POST http://localhost:3000/tokens/set \
   -H "Content-Type: application/json" \
   -d '{"token":"novo_token"}'
 ```
@@ -121,13 +121,13 @@ curl -X POST http://localhost:5000/tokens/set \
 ### Ver estado do pool
 
 ```bash
-curl http://localhost:5000/tokens/status
+curl http://localhost:3000/tokens/status
 ```
 
 ### Tentar refresh
 
 ```bash
-curl -X POST http://localhost:5000/tokens/refresh
+curl -X POST http://localhost:3000/tokens/refresh
 ```
 
 ## Códigos comuns

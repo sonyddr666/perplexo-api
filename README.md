@@ -38,11 +38,11 @@ Depois:
 docker compose up -d --build
 ```
 
-API disponível em `http://localhost:5000`.
+API disponível em `http://localhost:3000`.
 
 ### Página de credenciais
 
-Abra `http://localhost:5000/credentials` para:
+Abra `http://localhost:3000/credentials` para:
 
 - salvar token, cookie string ou JSON de cookies sem reexibir o valor salvo
 - testar a credencial com um clique
@@ -56,10 +56,10 @@ Para Coolify, o caminho recomendado é usar o `Dockerfile` diretamente.
 
 Configuração mínima:
 
-- porta interna: `5000`
+- porta interna: `3000`
 - health check: `/health`
 - volume persistente montado em `/app/data`
-- variáveis: `PERPLEXITY_SESSION_TOKEN` opcional, `MCP_API_KEY` opcional e `MCP_PORT=5000`
+- variáveis: `PERPLEXITY_SESSION_TOKEN` opcional, `MCP_API_KEY` opcional e `MCP_PORT=3000`
 
 O `docker-compose.yml` também foi ajustado para funcionar sem `env_file`, então ele pode receber variáveis direto da UI do painel.
 
@@ -93,7 +93,7 @@ python src/perplexity_mcp.py
 ## Exemplo de chamada de skill
 
 ```bash
-curl -X POST http://localhost:5000/search \
+curl -X POST http://localhost:3000/search \
   -H "Content-Type: application/json" \
   -H "X-API-Key: sua_chave" \
   -d '{
@@ -149,8 +149,8 @@ Isso acontece porque:
 Para verificar ou mudar isso:
 
 ```bash
-curl -X GET http://localhost:5000/config/library
-curl -X POST http://localhost:5000/config/library
+curl -X GET http://localhost:3000/config/library
+curl -X POST http://localhost:3000/config/library
 ```
 
 ## Upload de arquivo no `/search`
@@ -158,7 +158,7 @@ curl -X POST http://localhost:5000/config/library
 O endpoint aceita `multipart/form-data` além de JSON:
 
 ```bash
-curl -X POST http://localhost:5000/search \
+curl -X POST http://localhost:3000/search \
   -H "X-API-Key: sua_chave" \
   -F "query=Analise este PDF" \
   -F "user_id=skill-files" \
@@ -170,7 +170,7 @@ curl -X POST http://localhost:5000/search \
 ## Streaming SSE
 
 ```bash
-curl -N -X POST http://localhost:5000/search_stream \
+curl -N -X POST http://localhost:3000/search_stream \
   -H "Content-Type: application/json" \
   -H "X-API-Key: sua_chave" \
   -d '{
@@ -184,7 +184,7 @@ curl -N -X POST http://localhost:5000/search_stream \
 ## Vision
 
 ```bash
-curl -X POST http://localhost:5000/vision \
+curl -X POST http://localhost:3000/vision \
   -H "Content-Type: application/json" \
   -H "X-API-Key: sua_chave" \
   -d '{

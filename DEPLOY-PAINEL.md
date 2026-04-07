@@ -1,5 +1,18 @@
 # Deploy via painel Docker
 
+## Coolify
+
+No Coolify, prefira deploy via `Dockerfile` em vez de stack compose.
+
+Use:
+
+- porta interna `5000`
+- health check `/health`
+- volume persistente em `/app/data`
+- variáveis de ambiente definidas pela UI
+
+Se quiser usar compose no Coolify, este repositório já não depende mais de `env_file`, então as variáveis da própria UI do painel são suficientes.
+
 ## Portainer ou painel compatível
 
 Use a stack com o conteúdo de `docker-compose.yml` para a versão normal, ou `docker-compose.vpn.yml` para a versão roteada por VPN.

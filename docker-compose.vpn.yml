@@ -45,12 +45,16 @@ services:
       vpn:
         condition: service_healthy
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      - MCP_PORT=5000
-      - TOKENS_DIR=/app/data/tokens
-      - CONVERSATIONS_DIR=/app/data/conversations
+      MCP_PORT: ${MCP_PORT:-5000}
+      FLASK_ENV: ${FLASK_ENV:-production}
+      PERPLEXITY_SESSION_TOKEN: ${PERPLEXITY_SESSION_TOKEN:-}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      MAX_ACTIVE_CONVERSATIONS: ${MAX_ACTIVE_CONVERSATIONS:-100}
+      CONVERSATION_TTL_SECONDS: ${CONVERSATION_TTL_SECONDS:-3600}
+      TOKEN_ROTATION_ENABLED: ${TOKEN_ROTATION_ENABLED:-true}
+      TOKENS_DIR: /app/data/tokens
+      CONVERSATIONS_DIR: /app/data/conversations
     volumes:
       - perplexo-data:/app/data
     healthcheck:

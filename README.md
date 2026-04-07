@@ -50,6 +50,19 @@ Abra `http://localhost:5000/credentials` para:
 
 Se `MCP_API_KEY` estiver configurada, a própria página pede a chave administrativa para autorizar as ações.
 
+### Coolify
+
+Para Coolify, o caminho recomendado é usar o `Dockerfile` diretamente.
+
+Configuração mínima:
+
+- porta interna: `5000`
+- health check: `/health`
+- volume persistente montado em `/app/data`
+- variáveis: `PERPLEXITY_SESSION_TOKEN` opcional, `MCP_API_KEY` opcional e `MCP_PORT=5000`
+
+O `docker-compose.yml` também foi ajustado para funcionar sem `env_file`, então ele pode receber variáveis direto da UI do painel.
+
 ## Rodar sem Docker
 
 ```bash

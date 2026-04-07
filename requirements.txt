@@ -3,6 +3,9 @@
 # Server Flask para MCP
 flask>=3.0.0
 
+# WSGI para produção
+gunicorn>=23.0.0
+
 # Variáveis de ambiente
 python-dotenv>=1.0.0
 

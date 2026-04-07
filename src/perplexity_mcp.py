@@ -138,22 +138,22 @@ except Exception as e:
 SCRAPER_AVAILABLE = False
 Perplexity = None
 ConversationConfig = None
-Models = None
+MODELS = None
 SourceFocus = None
 CitationMode = None
 
 try:
     from perplexity_webui_scraper import Perplexity as _Perplexity
     from perplexity_webui_scraper import ConversationConfig as _ConversationConfig
-    from perplexity_webui_scraper import Models as _Models
+    from perplexity_webui_scraper import MODELS as _MODELS
     from perplexity_webui_scraper import CitationMode as _CitationMode
     
     Perplexity = _Perplexity
     ConversationConfig = _ConversationConfig
-    Models = _Models
+    MODELS = _MODELS
     CitationMode = _CitationMode
     
-    # Tenta importar TimeRange e SourceFocus
+    # SourceFocus e TimeRange agora são Literal types, não enums
     try:
         from perplexity_webui_scraper import SourceFocus as _SourceFocus
         SourceFocus = _SourceFocus
@@ -172,8 +172,8 @@ try:
     logger.info("✅ Scraper perplexity-webui-scraper carregado com sucesso!")
     
     # Log dos modelos disponíveis
-    if Models:
-        available_models = [attr for attr in dir(Models) if not attr.startswith('_')]
+    if MODELS:
+        available_models = list(MODELS.keys())
         logger.info(f"📋 Modelos disponíveis: {available_models[:5]}...")
         
 except ImportError as e:
@@ -466,60 +466,49 @@ def delete_saved_conversation(user_id: str, conv_id: str) -> bool:
 
 
 def get_model_enum(model_id: str):
-    """Converte ID do modelo para enum do scraper"""
-    if not SCRAPER_AVAILABLE or Models is None:
+    """Converte ID do modelo para Model do scraper (MODELS dict)"""
+    if not SCRAPER_AVAILABLE or MODELS is None:
         return None
     
-    model_id = model_id.lower().replace("-", "_").replace(".", "_")
+    model_id = model_id.lower().strip()
     
-    # Mapeamento de IDs amigáveis para atributos do enum
-    id_to_attr = {
-        "best": "BEST",
-        "sonar": "SONAR",
-        "deep_research": "DEEP_RESEARCH",
-        # GPT-5.4 (antigo GPT-5.2)
-        "gpt_5_4": "GPT_54",
-        "gpt_5_4_thinking": "GPT_54_THINKING",
-        # Compat: aliases antigos do GPT-5.2 → GPT-5.4
-        "gpt_5_2": "GPT_54",
-        "gpt_5_2_thinking": "GPT_54_THINKING",
+    # Mapeamento de aliases amigáveis para chaves do dict MODELS
+    aliases = {
+        "best": "best",
+        "sonar": "sonar",
+        "deep_research": "deep-research",
+        "deep-research": "deep-research",
+        # GPT-5.4
+        "gpt_5_4": "gpt-5.4",
+        "gpt-5.4": "gpt-5.4",
+        "gpt_5_4_thinking": "gpt-5.4-thinking",
+        "gpt-5.4-thinking": "gpt-5.4-thinking",
+        # Compat: aliases antigos GPT-5.2
+        "gpt_5_2": "gpt-5.4",
+        "gpt_5_2_thinking": "gpt-5.4-thinking",
         # Claude Sonnet 4.6
-        "claude_sonnet_4_6": "CLAUDE_46_SONNET",
-        "claude_sonnet_4_6_thinking": "CLAUDE_46_SONNET_THINKING",
-        "claude_4_6_sonnet": "CLAUDE_46_SONNET",
-        "claude_4_6_sonnet_thinking": "CLAUDE_46_SONNET_THINKING",
+        "claude_sonnet_4_6": "claude-sonnet-4.6",
+        "claude-sonnet-4.6": "claude-sonnet-4.6",
+        "claude_sonnet_4_6_thinking": "claude-sonnet-4.6-thinking",
+        "claude-sonnet-4.6-thinking": "claude-sonnet-4.6-thinking",
         # Claude Opus 4.6
-        "claude_opus_4_6": "CLAUDE_46_OPUS",
-        "claude_opus_4_6_thinking": "CLAUDE_46_OPUS_THINKING",
-        "claude_4_6_opus": "CLAUDE_46_OPUS",
-        "claude_4_6_opus_thinking": "CLAUDE_46_OPUS_THINKING",
-        # Gemini 3 Flash
-        "gemini_3_flash": "GEMINI_3_FLASH",
-        "gemini_3_flash_thinking": "GEMINI_3_FLASH_THINKING",
-        # Gemini 3.1 Pro (novo)
-        "gemini_3_1_pro": "GEMINI_31_PRO",
-        "gemini_3_1_pro_thinking": "GEMINI_31_PRO_THINKING",
-        "gemini_3_pro_thinking": "GEMINI_3_PRO_THINKING",
-        # Grok 4.1
-        "grok_4_1": "GROK_41",
-        "grok_4_1_thinking": "GROK_41_THINKING",
-        # Kimi K2.5
-        "kimi_k2_5_thinking": "KIMI_K25_THINKING",
-        # NVIDIA Nemotron 3 Super (novo)
-        "nv_nemotron_3_super_thinking": "NEMOTRON_3_SUPER",
-        "nemotron": "NEMOTRON_3_SUPER",
-        # Compat legado
-        "create_files": "CREATE_FILES_AND_APPS",
+        "claude_opus_4_6": "claude-opus-4.6",
+        "claude-opus-4.6": "claude-opus-4.6",
+        "claude_opus_4_6_thinking": "claude-opus-4.6-thinking",
+        "claude-opus-4.6-thinking": "claude-opus-4.6-thinking",
+        # Gemini 3.1 Pro
+        "gemini_3_1_pro": "gemini-3.1-pro",
+        "gemini-3.1-pro": "gemini-3.1-pro",
+        "gemini_3_1_pro_thinking": "gemini-3.1-pro-thinking",
+        "gemini-3.1-pro-thinking": "gemini-3.1-pro-thinking",
+        # NVIDIA Nemotron
+        "nv_nemotron_3_super_thinking": "nv-nemotron-3-super-thinking",
+        "nemotron": "nv-nemotron-3-super-thinking",
     }
     
-    attr_name = id_to_attr.get(model_id, "BEST")
-    
-    # Tenta obter o atributo do enum
-    if hasattr(Models, attr_name):
-        return getattr(Models, attr_name)
-    
-    # Fallback para BEST
-    return getattr(Models, "BEST", None)
+    # Tenta alias primeiro, senão tenta direto no dict
+    key = aliases.get(model_id, model_id)
+    return MODELS.get(key) or MODELS.get("best")
 
 
 def get_source_focus(focus_id: str):

@@ -508,53 +508,41 @@ def get_model_enum(model_id: str):
     
     # Tenta alias primeiro, senão tenta direto no dict
     key = aliases.get(model_id, model_id)
-    return MODELS.get(key) or MODELS.get("best")
+    # ConversationConfig.model aceita str (chave do MODELS dict)
+    return key if key in MODELS else "best"
 
 
 def get_source_focus(focus_id: str):
-    """Converte ID do focus para enum do scraper (se disponível)"""
-    if not SCRAPER_AVAILABLE or SourceFocus is None:
-        return None
-    
-    focus_id = focus_id.upper()
-    
-    # Tenta obter o atributo
-    if hasattr(SourceFocus, focus_id):
-        return getattr(SourceFocus, focus_id)
-    
-    # Fallback para WEB
-    return getattr(SourceFocus, "WEB", None)
+    """Converte ID do focus para string aceita pelo scraper"""
+    # SourceFocus = Literal["web", "academic", "social", "finance", "all"]
+    valid = {"web", "academic", "social", "finance", "all"}
+    focus = focus_id.lower().strip()
+    return focus if focus in valid else "web"
 
 
 def get_citation_mode(mode: str):
-    """Converte modo de citação para enum"""
-    if not SCRAPER_AVAILABLE or CitationMode is None:
-        return None
-    
-    mode = mode.upper()
-    
-    if hasattr(CitationMode, mode):
-        return getattr(CitationMode, mode)
-    
-    return getattr(CitationMode, "MARKDOWN", None)
+    """Converte modo de citação para string aceita pelo scraper"""
+    # CitationMode = Literal["default", "markdown", "clean"]
+    valid = {"default", "markdown", "clean"}
+    m = mode.lower().strip()
+    return m if m in valid else "markdown"
 
 
 def get_time_range(range_id: str):
-    """Converte ID de tempo para enum"""
-    if not SCRAPER_AVAILABLE or TimeRange is None:
-        return None
-        
-    range_id = range_id.upper()
+    """Converte ID de tempo para string aceita pelo scraper"""
+    # TimeRange = Literal["all", "day", "week", "month", "year"]
     mapping = {
-        "ALL": "ALL",
-        "DAY": "TODAY",
-        "WEEK": "LAST_WEEK", 
-        "MONTH": "LAST_MONTH",
-        "YEAR": "LAST_YEAR"
+        "all": "all",
+        "day": "day",
+        "today": "day",
+        "week": "week",
+        "last_week": "week", 
+        "month": "month",
+        "last_month": "month",
+        "year": "year",
+        "last_year": "year",
     }
-    
-    attr = mapping.get(range_id, "ALL")
-    return getattr(TimeRange, attr, TimeRange.ALL)
+    return mapping.get(range_id.lower().strip(), "all")
 
 
 # ============= ENDPOINTS =============

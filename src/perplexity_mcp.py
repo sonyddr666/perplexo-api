@@ -201,19 +201,12 @@ class ClientManager:
 
         if SCRAPER_AVAILABLE and Perplexity and token != "seu_session_token_aqui":
             try:
-                # Lê cookies complementares (cf_clearance, etc.)
-                if extra_cookies is None and token_manager:
-                    extra_cookies = token_manager.get_complementary_cookies()
-                
+                # curl_cffi cuida do TLS fingerprint sozinho.
+                # Só precisa do __Secure-next-auth.session-token.
                 self.default_client = Perplexity(
                     session_token=token,
-                    extra_cookies=extra_cookies or None,
                 )
-                
-                if extra_cookies:
-                    logger.info(f"✅ Cliente Default inicializado com {len(extra_cookies)} cookies complementares!")
-                else:
-                    logger.info("✅ Cliente Default inicializado!")
+                logger.info("✅ Cliente Default inicializado (session_token only)")
             except Exception as e:
                 logger.error(f"❌ Erro config default client: {e}")
 

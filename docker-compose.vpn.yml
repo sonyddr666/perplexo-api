@@ -1,0 +1,66 @@
+# ==============================
+# Perplexo API - Docker Compose (VPN)
+# ==============================
+# Roteia a API pelo Gluetun/NordVPN.
+# Use: docker-compose -f docker-compose.vpn.yml up -d --build
+
+services:
+  vpn:
+    image: qmcgaw/gluetun
+    container_name: perplexo-vpn
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      # NordVPN Config (valores via .env)
+      - VPN_SERVICE_PROVIDER=nordvpn
+      - VPN_TYPE=openvpn
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      # Servidor Brasil
+      - SERVER_COUNTRIES=${VPN_COUNTRY:-Brazil}
+      # DNS Configuration (fix para problemas de resolução DNS)
+      - DNS_KEEP_NAMESERVER=off
+      - DNS_ADDRESS=1.1.1.1
+    ports:
+      - "5000:5000"
+    volumes:
+      - gluetun-data:/gluetun
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://ipinfo.io"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 35s
+
+  perplexo-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perplexo-api
+    network_mode: "service:vpn"
+    depends_on:
+      vpn:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - MCP_PORT=5000
+      - TOKENS_DIR=/app/data/tokens
+      - CONVERSATIONS_DIR=/app/data/conversations
+    volumes:
+      - perplexo-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+
+volumes:
+  gluetun-data:
+  perplexo-data:

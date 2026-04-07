@@ -1,0 +1,52 @@
+# Documentação interna
+doc/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dados locais (tokens, conversas, tarefas)
+data/
+!data/tokens/
+data/tokens/*
+!data/tokens/*.example
+!data/tokens/*.json.example
+
+# Testes e scripts de debug
+test_*.py
+check_tokens.py
+debug_tokens.py
+
+# Arquivos temporários
+diff_mcp.txt
+*.diff
+*.patch
+
+# Node
+node_modules/
+package-lock.json
+AUDITORIA-SEGURANCA.md

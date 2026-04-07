@@ -602,16 +602,6 @@ def health_check():
     
     return jsonify({
         "status": status,
-        "checks": checks,
-        "scraper_available": SCRAPER_AVAILABLE,
-        "client_initialized": get_active_client() is not None,
-        "source_focus_available": SourceFocus is not None,
-        "token_manager_active": token_manager is not None and len(token_manager.accounts) > 0,
-        "perplexity_reachable": perplexity_reachable,
-        "active_conversations": len(active_conversations),
-        "max_conversations": MAX_ACTIVE_CONVERSATIONS,
-        "conversation_ttl": CONVERSATION_TTL_SECONDS,
-        "api_key_required": bool(MCP_API_KEY),
         "version": "3.1.0"
     })
 
@@ -839,9 +829,12 @@ def tokens_rotate():
     if result.get("success") and result.get("token"):
         client_manager.init_default(result["token"])
     
-    result["new_index"] = 0
-    result["account"] = result.get("account", {})
-    return jsonify(result)
+    # Sanitizar: não vazar token JWT nem dados da conta
+    safe = {
+        "success": result.get("success", False),
+        "message": result.get("message", ""),
+    }
+    return jsonify(safe)
 
 
 @app.route('/tokens/pool', methods=['GET', 'POST'])
@@ -854,7 +847,16 @@ def tokens_pool():
         return jsonify({"error": "TokenManager n\u00e3o dispon\u00edvel"}), 503
     
     if request.method == "GET":
-        return jsonify(token_manager.get_pool_status())
+        # Sanitizar: mesma resposta limpa do /tokens/status
+        status = token_manager.get_pool_status()
+        safe = {
+            "total": status.get("total", 0),
+            "valid": status.get("valid", 0),
+            "cf_blocked": status.get("cf_blocked", 0),
+            "invalid": status.get("invalid", 0),
+            "unknown": status.get("unknown", 0),
+        }
+        return jsonify(safe)
     
     data = request.json or {}
     action = data.get("action", "")
@@ -935,7 +937,15 @@ def tokens_reload_compat():
 def tokens_pool_status_compat():
     if not token_manager:
         return jsonify({"error": "TokenManager n\u00e3o dispon\u00edvel"}), 503
-    return jsonify(token_manager.get_pool_status())
+    status = token_manager.get_pool_status()
+    safe = {
+        "total": status.get("total", 0),
+        "valid": status.get("valid", 0),
+        "cf_blocked": status.get("cf_blocked", 0),
+        "invalid": status.get("invalid", 0),
+        "unknown": status.get("unknown", 0),
+    }
+    return jsonify(safe)
 
 @app.route('/tokens/pool/smart_refresh', methods=['POST'])
 @require_api_key
@@ -1292,6 +1302,7 @@ def search_stream():
 
 
 @app.route('/models', methods=['GET'])
+@require_api_key
 def list_models():
     """Lista modelos e focus modes disponíveis"""
     return jsonify({
@@ -1912,6 +1923,7 @@ def vision():
 
 
 @app.route('/diagnostics', methods=['GET'])
+@require_api_key
 def diagnostics():
     """
     Diagnóstico completo do sistema.

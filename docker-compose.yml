@@ -2,6 +2,7 @@
 # Perplexo API - Docker Compose
 # ==============================
 # Versão sem VPN. Para roteamento via NordVPN, use docker-compose.vpn.yml
+# Compatível com Coolify (Traefik proxy reverso)
 
 services:
   perplexo-api:
@@ -20,10 +21,19 @@ services:
       TOKEN_ROTATION_ENABLED: ${TOKEN_ROTATION_ENABLED:-true}
       TOKENS_DIR: /app/data/tokens
       CONVERSATIONS_DIR: /app/data/conversations
-    ports:
-      - "${MCP_PORT:-3000}:3000"
+    expose:
+      - "3000"
     volumes:
       - perplexo-data:/app/data
+    networks:
+      - coolify
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.perplexo-api.rule=Host(`perplexo.0api.cloud`)"
+      - "traefik.http.routers.perplexo-api.entrypoints=https"
+      - "traefik.http.routers.perplexo-api.tls=true"
+      - "traefik.http.routers.perplexo-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.perplexo-api.loadbalancer.server.port=3000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
       interval: 30s
@@ -31,6 +41,9 @@ services:
       retries: 3
       start_period: 15s
 
-
 volumes:
   perplexo-data:
+
+networks:
+  coolify:
+    external: true

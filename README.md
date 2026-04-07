@@ -70,6 +70,8 @@ python src/perplexity_mcp.py
 | `GET` | `/conversation-status` | Status da conversa atual |
 | `GET` | `/history/list` | Lista históricos salvos |
 | `POST` | `/history/load` | Reabre um histórico salvo |
+| `GET` | `/config/library` | Consulta se o modo de salvar na biblioteca remota está ativo |
+| `POST` | `/config/library` | Alterna salvar ou não a conversa na biblioteca do Perplexity |
 | `POST` | `/tokens/set` | Atualiza token principal |
 | `POST` | `/tokens/refresh` | Tenta renovar token |
 | `GET` | `/tokens/status` | Estado do pool de tokens |
@@ -105,11 +107,37 @@ Resposta típica:
   "has_thinking": false,
   "conversation_info": {
     "id": "skill-agent-1",
-    "uuid": "backend-uuid",
+    "uuid": null,
     "model": "sonar",
     "message_count": 1
   }
 }
+```
+
+Sobre `conversation_info`:
+
+- `id`: repete o `user_id` enviado e identifica o contexto local dentro da API
+- `message_count`: conta os turnos acumulados dessa conversa local
+- `model`: modelo usado na thread atual
+- `uuid`: por padrão costuma vir `null`, porque o scraper roda em modo incógnito e não salva a conversa na biblioteca remota
+
+Se você ativar `POST /config/library`, o modo incógnito é desligado e o `uuid` pode passar a vir preenchido com o identificador remoto da thread no Perplexity.
+
+## Salvar na biblioteca remota
+
+O comportamento padrão da API é **não salvar** as conversas na biblioteca da conta do Perplexity.
+
+Isso acontece porque:
+
+- o `ConversationConfig` nasce com `save_to_library = false`
+- o scraper converte isso para `is_incognito = true`
+- o Perplexity responde sem persistir a thread remota
+
+Para verificar ou mudar isso:
+
+```bash
+curl -X GET http://localhost:5000/config/library
+curl -X POST http://localhost:5000/config/library
 ```
 
 ## Upload de arquivo no `/search`

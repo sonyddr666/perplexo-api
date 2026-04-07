@@ -809,7 +809,7 @@ def tokens_rotate():
     # Sanitizar: não vazar token JWT nem dados da conta
     safe = {
         "success": result.get("success", False),
-        "message": result.get("message", ""),
+        "message": "Token rotacionado" if result.get("success") else "Falha ao rotacionar",
     }
     return jsonify(safe)
 
@@ -1910,35 +1910,19 @@ def diagnostics():
     """
     result = {
         "mcp_status": "online",
-        "public_ip": "unknown",
         "perplexity_auth": "unknown",
-        "auth_error": None
     }
     
-    # 1. Checa IP Público
+    # Checa Autenticação Perplexity
     try:
-        import urllib.request
-        try:
-            with urllib.request.urlopen('https://api.ipify.org', timeout=5) as response:
-                result['public_ip'] = response.read().decode('utf-8')
-        except:
-             # Fallback
-             with urllib.request.urlopen('https://ifconfig.me/ip', timeout=5) as response:
-                result['public_ip'] = response.read().decode('utf-8').strip()
-             
-    except Exception as e:
-        result['public_ip'] = f"Error: {str(e)}"
-        
-    # 2. Checa Autenticação Perplexity
-    try:
-        if SCRAPER_AVAILABLE and client is not None:
-             # Verifica apenas se o cliente existe (o check anterior de .session falhava)
+        active_client = get_active_client()
+        if SCRAPER_AVAILABLE and active_client is not None:
              result['perplexity_auth'] = "configured"
         else:
             result['perplexity_auth'] = "scraper_unavailable"
 
     except Exception as e:
-        result['error'] = str(e)
+        result['perplexity_auth'] = "error"
         
     return jsonify(result)
 

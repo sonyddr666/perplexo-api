@@ -1581,6 +1581,17 @@ def search():
                 if is_auth and attempt < max_retries - 1 and token_manager:
                     logger.warning(f"⚠️ Erro Auth (/search). Rotacionando token... ({attempt+1}/{max_retries})")
                     new_token = token_manager.get_next_token()
+                    
+                    if attempt == max_retries - 2:
+                        logger.info("🔄 Tentando refresh completo (cf_clearance) no /search...")
+                        try:
+                            refresh_result = token_manager.refresh_from_browser_cookies()
+                            if refresh_result.get("success"):
+                                new_token = refresh_result.get("new_token", new_token)
+                                logger.info("✅ cf_clearance renovado com sucesso via auto-cura do /search!")
+                        except Exception as refresh_err:
+                            logger.warning(f"⚠️ Refresh falhou: {refresh_err}")
+                            
                     if new_token:
                         client_manager.init_default(new_token)
                         # Força recriação da conversa

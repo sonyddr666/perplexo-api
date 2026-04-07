@@ -25,9 +25,6 @@ RUN mkdir -p \
 # Copia código fonte
 COPY src/ ./src/
 
-# Copia scripts de refresh
-COPY scripts/ ./scripts/
-
 # Tokens são injetados via variáveis de ambiente no runtime (Coolify)
 
 # Variáveis de ambiente

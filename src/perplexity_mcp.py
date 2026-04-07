@@ -745,7 +745,7 @@ def credentials_clear():
 @app.route('/tokens/status', methods=['GET'])
 @require_api_key
 def tokens_status():
-    """Status do pool + conta ativa (unificado v3)"""
+    """Status do pool — sanitizado, sem dados sensíveis."""
     if token_manager is None:
         return jsonify({
             "active": False,
@@ -754,12 +754,19 @@ def tokens_status():
         })
     
     status = token_manager.get_pool_status()
-    status["active"] = status.get("active", False)
-    status["total_accounts"] = status["total"]
-    status["current_index"] = 0
-    status["rotation_enabled"] = True
-    status["tokens_dir"] = str(token_manager.tokens_dir)
-    return jsonify(status)
+    
+    # Resposta sanitizada: só contadores e estado operacional
+    safe = {
+        "active": status.get("active", False),
+        "total": status.get("total", 0),
+        "valid": status.get("valid", 0),
+        "cf_blocked": status.get("cf_blocked", 0),
+        "invalid": status.get("invalid", 0),
+        "unknown": status.get("unknown", 0),
+        "rotation_enabled": True,
+        "cookies_status": status.get("cookies_status", "unknown"),
+    }
+    return jsonify(safe)
 
 
 @app.route('/tokens/set', methods=['POST'])

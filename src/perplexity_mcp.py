@@ -742,21 +742,80 @@ def credentials_test():
             "status": _runtime_credentials_status(),
         }), 400
 
-    is_valid = token_manager.validate_token(current)
-    if is_valid:
-        client_manager.init_default(current)
-        message = "Credencial válida e pronta para uso."
-        status_code = 200
-    else:
-        client_manager.init_default(None)
-        message = "Credencial inválida, expirada ou bloqueada."
-        status_code = 400
+    data = request.json or {}
+    test_query = str(
+        data.get(
+            "query",
+            "Que horas são agora em Brasília? Responda em uma frase curta."
+        )
+    ).strip()
+    if not test_query:
+        test_query = "Que horas são agora em Brasília? Responda em uma frase curta."
 
+    client_manager.init_default(current)
+    last_error = None
+    max_retries = _get_auth_retry_limit()
+
+    for attempt in range(max_retries):
+        try:
+            active_client = get_active_client()
+            if active_client is None:
+                raise RuntimeError("Cliente não inicializado.")
+
+            config_kwargs = {
+                "model": get_model_enum("best"),
+                "citation_mode": get_citation_mode("clean"),
+                "language": "pt-BR",
+                "save_to_library": SAVE_TO_LIBRARY_ENABLED,
+            }
+            if SourceFocus is not None:
+                source_focus_enum = get_source_focus("web")
+                if source_focus_enum:
+                    config_kwargs["source_focus"] = [source_focus_enum]
+
+            conversation = active_client.create_conversation(ConversationConfig(**config_kwargs))
+            conversation.ask(test_query)
+            answer = (conversation.answer or "").strip()
+            _persist_client_session_cookies()
+
+            preview = " ".join(answer.split())
+            if len(preview) > 180:
+                preview = preview[:177] + "..."
+
+            return jsonify({
+                "success": True,
+                "message": "Credencial válida. Busca real concluída com sucesso.",
+                "answer_preview": preview,
+                "status": _runtime_credentials_status(),
+            }), 200
+
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            if _is_auth_error(err_str):
+                recovery_action = _recover_auth_failure(
+                    user_id="__credentials_test__",
+                    err_str=err_str,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    route_name="/credentials/api/test",
+                )
+                if recovery_action:
+                    continue
+
+            client_manager.init_default(None)
+            return jsonify({
+                "success": False,
+                "message": f"Teste real falhou: {e}",
+                "status": _runtime_credentials_status(),
+            }), 400
+
+    client_manager.init_default(None)
     return jsonify({
-        "success": is_valid,
-        "message": message,
+        "success": False,
+        "message": f"Teste real falhou após {max_retries} tentativa(s): {last_error}",
         "status": _runtime_credentials_status(),
-    }), status_code
+    }), 400
 
 
 @app.route('/credentials/api/clear', methods=['POST'])

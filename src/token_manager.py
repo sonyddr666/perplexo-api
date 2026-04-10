@@ -607,6 +607,16 @@ class TokenManager:
                 break
         self._save_pool(pool)
 
+    def get_token_id(self, token: str) -> Optional[str]:
+        """Resolve o ID do pool a partir do valor do JWT."""
+        if not token:
+            return None
+        pool = self._load_pool()
+        for entry in pool["pool"]:
+            if entry.get("session_token") == token:
+                return entry.get("id")
+        return None
+
     # ============= REFRESH =============
 
     def refresh_token(self, token_id: str = None) -> dict:
@@ -711,6 +721,12 @@ class TokenManager:
                 logger.info(f"🎉 Token renovado: ****{new_token[-8:]}")
                 return {"success": True, "new_token": new_token,
                         "message": "✅ Token renovado com sucesso!"}
+
+            if target_entry:
+                target_entry["status"] = TOKEN_STATUS_VALID
+                target_entry["last_validated"] = datetime.now().isoformat()
+                target_entry["invalidation_reason"] = None
+                self._save_pool(pool)
 
             return {"success": True, "new_token": None,
                     "message": "ℹ️ Token ainda válido (servidor não devolveu novo JWT)"}

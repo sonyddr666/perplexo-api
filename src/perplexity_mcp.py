@@ -247,6 +247,70 @@ def get_active_client():
     return client_manager.default_client
 
 
+def _get_auth_retry_limit() -> int:
+    """Uma busca sempre ganha ao menos uma tentativa de refresh automático."""
+    if not token_manager:
+        return 1
+    return 3 if len(token_manager.accounts) > 1 else 2
+
+
+def _is_auth_error(err_str: str) -> bool:
+    err_str = (err_str or "").lower()
+    return any(term in err_str for term in ("401", "403", "unauthorized", "forbidden"))
+
+
+def _classify_auth_failure(err_str: str) -> str:
+    err_str = (err_str or "").lower()
+    if any(term in err_str for term in ("cloudflare", "cf_clearance", "cf blocked", "cf_blocked")):
+        return "cf_blocked"
+    return "session_expired"
+
+
+def _recover_auth_failure(user_id: str, err_str: str, attempt: int, max_retries: int, route_name: str) -> Optional[str]:
+    """
+    Tenta recuperar automaticamente falhas de autenticação do Perplexity.
+    Ordem: refresh da sessão atual e, se não resolver, rotação para outra conta.
+    """
+    if not token_manager or attempt >= max_retries - 1:
+        return None
+
+    current_token = client_manager.session_token or None
+    current_token_id = token_manager.get_token_id(current_token) if current_token else None
+    failure_reason = _classify_auth_failure(err_str)
+
+    if current_token:
+        if failure_reason == "cf_blocked":
+            token_manager.mark_cf_blocked(token=current_token)
+        else:
+            token_manager.mark_invalid(token=current_token, reason=failure_reason)
+
+    refresh_result = None
+    try:
+        if current_token_id:
+            refresh_result = token_manager.refresh_token(token_id=current_token_id)
+        else:
+            refresh_result = token_manager.refresh_token()
+    except Exception as refresh_err:
+        logger.warning(f"⚠️ Refresh automático falhou em {route_name}: {refresh_err}")
+
+    if refresh_result and refresh_result.get("success"):
+        refreshed_token = refresh_result.get("new_token") or current_token or token_manager.get_current_token()
+        if refreshed_token:
+            client_manager.init_default(refreshed_token)
+            active_conversations.pop(user_id, None)
+            logger.warning(f"🔄 Auth falhou em {route_name}; sessão renovada automaticamente")
+            return "refresh"
+
+    next_token, _ = token_manager.get_next_valid_token()
+    if next_token and next_token != current_token:
+        client_manager.init_default(next_token)
+        active_conversations.pop(user_id, None)
+        logger.warning(f"🔄 Auth falhou em {route_name}; alternando para outra credencial")
+        return "rotate"
+
+    return None
+
+
 def _runtime_credentials_status() -> Dict[str, Any]:
     """Status sanitizado para a UI de credenciais."""
     pool_status = token_manager.get_pool_status() if token_manager else {}
@@ -1142,7 +1206,7 @@ def search_stream():
 
         def generate():
             # Retry loop para rotação de token
-            max_retries = 3 if token_manager and len(token_manager.accounts) > 1 else 1
+            max_retries = _get_auth_retry_limit()
             
             for attempt in range(max_retries):
                 try:
@@ -1241,30 +1305,21 @@ def search_stream():
                     
                 except Exception as e:
                     err_str = str(e).lower()
-                    is_auth = '401' in err_str or '403' in err_str or 'unauthorized' in err_str or 'forbidden' in err_str
-                    
-                    if is_auth and attempt < max_retries - 1:
-                        logger.warning(f"⚠️ Erro Auth (Stream). Rotacionando... ({attempt+1}/{max_retries})")
-                        yield f"data: {json.dumps({'status': '🔄 Token expirado. Trocando conta...'})}\n\n"
-                        
-                        # Rotação de token + auto-refresh de cf_clearance
-                        # cf_clearance é por IP/servidor, seguro compartilhar entre contas
-                        new_token = token_manager.get_next_token()
-                        
-                        # Na penúltima tentativa: refresh completo (renova cf_clearance)
-                        if attempt == max_retries - 2 and token_manager:
-                            logger.info("🔄 Tentando refresh completo (cf_clearance)...")
-                            try:
-                                refresh_result = token_manager.refresh_from_browser_cookies()
-                                if refresh_result.get("success"):
-                                    new_token = refresh_result.get("new_token", new_token)
-                                    logger.info("✅ cf_clearance renovado com sucesso!")
-                            except Exception as refresh_err:
-                                logger.warning(f"⚠️ Refresh falhou: {refresh_err}")
-                        
-                        if new_token:
-                            client_manager.init_default(new_token)
-                            active_conversations.pop(user_id, None)
+                    is_auth = _is_auth_error(err_str)
+
+                    if is_auth:
+                        recovery_action = _recover_auth_failure(
+                            user_id=user_id,
+                            err_str=err_str,
+                            attempt=attempt,
+                            max_retries=max_retries,
+                            route_name="/search_stream",
+                        )
+                        if recovery_action == "refresh":
+                            yield f"data: {json.dumps({'status': '🔄 Sessão renovada automaticamente. Tentando novamente...'})}\n\n"
+                            continue
+                        if recovery_action == "rotate":
+                            yield f"data: {json.dumps({'status': '🔄 Token expirado. Trocando conta...'})}\n\n"
                             continue
                             
                     logger.error(f"Erro stream final: {e}")
@@ -1409,7 +1464,7 @@ def search():
         citation_enum = get_citation_mode(citation_mode)
         
         # Retry loop para rotação de token
-        max_retries = 3 if token_manager and len(token_manager.accounts) > 1 else 1
+        max_retries = _get_auth_retry_limit()
         last_error = None
         
         for attempt in range(max_retries):
@@ -1564,26 +1619,17 @@ def search():
             except Exception as e:
                 last_error = e
                 err_str = str(e).lower()
-                is_auth = '401' in err_str or '403' in err_str or 'unauthorized' in err_str or 'forbidden' in err_str
-                
-                if is_auth and attempt < max_retries - 1 and token_manager:
-                    logger.warning(f"⚠️ Erro Auth (/search). Rotacionando token... ({attempt+1}/{max_retries})")
-                    new_token = token_manager.get_next_token()
-                    
-                    if attempt == max_retries - 2:
-                        logger.info("🔄 Tentando refresh completo (cf_clearance) no /search...")
-                        try:
-                            refresh_result = token_manager.refresh_from_browser_cookies()
-                            if refresh_result.get("success"):
-                                new_token = refresh_result.get("new_token", new_token)
-                                logger.info("✅ cf_clearance renovado com sucesso via auto-cura do /search!")
-                        except Exception as refresh_err:
-                            logger.warning(f"⚠️ Refresh falhou: {refresh_err}")
-                            
-                    if new_token:
-                        client_manager.init_default(new_token)
-                        # Força recriação da conversa
-                        active_conversations.pop(user_id, None)
+                is_auth = _is_auth_error(err_str)
+
+                if is_auth:
+                    recovery_action = _recover_auth_failure(
+                        user_id=user_id,
+                        err_str=err_str,
+                        attempt=attempt,
+                        max_retries=max_retries,
+                        route_name="/search",
+                    )
+                    if recovery_action:
                         continue
                 
                 logger.error(f"Erro em /search: {e}")

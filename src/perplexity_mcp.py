@@ -189,6 +189,7 @@ class ClientManager:
         self.default_client: Optional[Perplexity] = None
         self.location_clients: Dict[str, Perplexity] = {} # "lat,lon" -> client
         self.session_token = ""
+        self._warm_session_token = ""
 
     def apply_extra_cookies(self, extra_cookies: dict = None) -> int:
         """Aplica cookies complementares aprendidos ao session object do scraper."""
@@ -224,11 +225,53 @@ class ClientManager:
             logger.info(f"🍪 Cookies complementares aplicados ao cliente: {updated}")
 
         return updated
+
+    def warmup_default_session(self, query: str = "bootstrap") -> bool:
+        """Aquece a mesma sessão HTTP do scraper antes da primeira busca real."""
+        if not self.default_client:
+            return False
+
+        http_client = getattr(self.default_client, "_http", None)
+        session = getattr(http_client, "_session", None) if http_client else None
+        if session is None:
+            return False
+
+        if self._warm_session_token == self.session_token:
+            return True
+
+        session_valid = False
+        steps = [
+            ("home", "https://www.perplexity.ai/", None),
+            ("auth_session", "https://www.perplexity.ai/api/auth/session?version=2.18&source=default", None),
+            ("search_new", "https://www.perplexity.ai/search/new", {"q": query}),
+        ]
+
+        try:
+            for step_name, url, params in steps:
+                resp = session.get(url, params=params, allow_redirects=True)
+
+                if token_manager:
+                    token_manager.capture_session_cookies(session)
+
+                if step_name == "auth_session" and resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    session_valid = bool(data.get("user"))
+
+            self._warm_session_token = self.session_token
+            logger.info("🔥 Sessão HTTP do scraper aquecida")
+            return session_valid
+        except Exception as e:
+            logger.debug(f"Aviso no warmup da sessão do scraper: {e}")
+            return False
         
     def init_default(self, token: str, extra_cookies: dict = None):
         self.default_client = None
         self.location_clients = {}
         self.session_token = token or ""
+        self._warm_session_token = ""
 
         if not token:
             logger.info("🧹 Cliente Default limpo")
@@ -248,6 +291,7 @@ class ClientManager:
                     session_token=token,
                 )
                 self.apply_extra_cookies(extra_cookies)
+                self.warmup_default_session()
                 logger.info("✅ Cliente Default inicializado (session_token only)")
             except Exception as e:
                 logger.error(f"❌ Erro config default client: {e}")

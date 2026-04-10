@@ -493,18 +493,9 @@ class TokenManager:
 
     # ============= VALIDAÇÃO COM PROBE REAL =============
 
-    def _probe_endpoint(self, token: str) -> Tuple[str, str]:
-        """
-        Probe duplo contra /api/auth/session:
-        1) COM cookies complementares → testa JWT + Cloudflare juntos
-        2) Se 403 → testa SEM cookies → distingue JWT morto de CF bloqueando
-
-        Retorna: (status, reason)
-        """
-        pool = self._load_pool()
-        complementary = pool.get("cookies", {})
-
-        headers = {
+    def _build_browser_headers(self) -> Dict[str, str]:
+        """Headers browser-like usados nos probes/refresh bootstrap."""
+        return {
             "Accept": "*/*",
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8",
             "Referer": "https://www.perplexity.ai/",
@@ -517,6 +508,92 @@ class TokenManager:
             "x-app-apiclient": "default",
             "x-app-apiversion": "2.18",
         }
+
+    def _bootstrap_session_context(self, token: str) -> dict:
+        """
+        Tenta aprender cookies auxiliares usando apenas o session token.
+        Isso permite bootstrap automático antes do primeiro refresh.
+        """
+        if not token:
+            return {
+                "success": False,
+                "session_valid": False,
+                "cookies_captured": 0,
+                "message": "❌ Token vazio no bootstrap"
+            }
+
+        try:
+            from curl_cffi.requests import Session as CffiSession
+        except ImportError:
+            return {
+                "success": False,
+                "session_valid": False,
+                "cookies_captured": 0,
+                "message": "❌ curl_cffi não instalado"
+            }
+
+        session = CffiSession(
+            headers=self._build_browser_headers(),
+            cookies={"__Secure-next-auth.session-token": token},
+            timeout=15,
+            impersonate="chrome",
+        )
+        cookies_captured = 0
+        session_valid = False
+
+        steps = [
+            ("home", "https://www.perplexity.ai/", None),
+            ("search_new", "https://www.perplexity.ai/search/new", {"q": "bootstrap"}),
+            ("auth_session", "https://www.perplexity.ai/api/auth/session?version=2.18&source=default", None),
+        ]
+
+        try:
+            for step_name, url, params in steps:
+                resp = session.get(url, params=params, allow_redirects=True)
+                cookies_captured += self._capture_cookie_values(session.cookies)
+
+                if step_name == "auth_session" and resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    session_valid = bool(data.get("user"))
+
+            return {
+                "success": session_valid or cookies_captured > 0,
+                "session_valid": session_valid,
+                "cookies_captured": cookies_captured,
+                "message": (
+                    "✅ Bootstrap de sessão concluído"
+                    if session_valid or cookies_captured > 0
+                    else "❌ Bootstrap não conseguiu aprender cookies nem validar a sessão"
+                ),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "session_valid": False,
+                "cookies_captured": cookies_captured,
+                "message": f"❌ Bootstrap falhou: {e}"
+            }
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def _probe_endpoint(self, token: str) -> Tuple[str, str]:
+        """
+        Probe duplo contra /api/auth/session:
+        1) COM cookies complementares → testa JWT + Cloudflare juntos
+        2) Se 403 → testa SEM cookies → distingue JWT morto de CF bloqueando
+
+        Retorna: (status, reason)
+        """
+        pool = self._load_pool()
+        complementary = pool.get("cookies", {})
+
+        headers = self._build_browser_headers()
 
         url = "https://www.perplexity.ai/api/auth/session?version=2.18&source=default"
 
@@ -644,6 +721,15 @@ class TokenManager:
                 return entry.get("id")
         return None
 
+    def _resolve_pool_entry(self, pool: dict, token_id: str = None, token: str = None) -> Optional[dict]:
+        """Resolve a entrada alvo dentro de um pool já carregado."""
+        for entry in pool.get("pool", []):
+            if token_id and entry.get("id") == token_id:
+                return entry
+            if token and entry.get("session_token") == token:
+                return entry
+        return None
+
     # ============= REFRESH =============
 
     def refresh_token(self, token_id: str = None) -> dict:
@@ -653,14 +739,6 @@ class TokenManager:
         """
         with self._lock:
             pool = self._load_pool()
-            complementary = pool.get("cookies", {})
-
-            if not complementary:
-                return {
-                    "success": False,
-                    "new_token": None,
-                    "message": "❌ Sem cookies complementares. Cole JSON array de cookies primeiro."
-                }
 
             # Determina token alvo
             target_entry = None
@@ -684,21 +762,35 @@ class TokenManager:
             if not target_token:
                 return {"success": False, "new_token": None, "message": "❌ Nenhum token para refresh"}
 
+            complementary = pool.get("cookies", {})
+            if not complementary:
+                bootstrap_result = self._bootstrap_session_context(target_token)
+                logger.info(bootstrap_result.get("message", "Bootstrap de sessão executado"))
+                pool = self._load_pool()
+                complementary = pool.get("cookies", {})
+                if bootstrap_result.get("session_valid"):
+                    target_entry = self._resolve_pool_entry(pool, token_id=token_id, token=target_token)
+                    if target_entry:
+                        target_entry["status"] = TOKEN_STATUS_VALID
+                        target_entry["last_validated"] = datetime.now().isoformat()
+                        target_entry["invalidation_reason"] = None
+                        self._save_pool(pool)
+                    return {
+                        "success": True,
+                        "new_token": None,
+                        "message": "✅ Sessão confirmada usando apenas o session token"
+                    }
+
+                if not complementary:
+                    return {
+                        "success": False,
+                        "new_token": None,
+                        "message": "❌ Sem cookies complementares e bootstrap automático não conseguiu aprender novos cookies."
+                    }
+
             all_cookies = {**complementary, "__Secure-next-auth.session-token": target_token}
 
-            headers = {
-                "Accept": "*/*",
-                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8",
-                "Referer": "https://www.perplexity.ai/",
-                "sec-ch-ua": '"Not(A:Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
-                "x-app-apiclient": "default",
-                "x-app-apiversion": "2.18",
-            }
+            headers = self._build_browser_headers()
 
             try:
                 from curl_cffi import requests as cffi_requests
@@ -713,6 +805,21 @@ class TokenManager:
                 return {"success": False, "new_token": None, "message": f"❌ Erro: {e}"}
 
             if resp.status_code == 403:
+                bootstrap_result = self._bootstrap_session_context(target_token)
+                logger.warning(bootstrap_result.get("message", "Bootstrap após 403 executado"))
+                pool = self._load_pool()
+                complementary = pool.get("cookies", {})
+
+                if bootstrap_result.get("session_valid"):
+                    target_entry = self._resolve_pool_entry(pool, token_id=token_id, token=target_token)
+                    if target_entry:
+                        target_entry["status"] = TOKEN_STATUS_VALID
+                        target_entry["last_validated"] = datetime.now().isoformat()
+                        target_entry["invalidation_reason"] = None
+                        self._save_pool(pool)
+                    return {"success": True, "new_token": None,
+                            "message": "✅ Sessão revalidada após 403 usando bootstrap automático"}
+
                 pool["cookies_status"] = "expired"
                 self._save_pool(pool)
                 return {"success": False, "new_token": None,
@@ -869,6 +976,20 @@ class TokenManager:
             entry["last_used"] = datetime.now().isoformat()
             self._save_pool(pool)
             return entry["session_token"], entry["id"]
+
+    def set_current_token(self, token_id: str) -> bool:
+        """Define qual token válido/unknown deve ser usado como atual."""
+        if not token_id:
+            return False
+        with self._lock:
+            pool = self._load_pool()
+            valid = [e for e in pool["pool"] if e.get("status") in (TOKEN_STATUS_VALID, TOKEN_STATUS_UNKNOWN)]
+            for idx, entry in enumerate(valid):
+                if entry.get("id") == token_id:
+                    pool["current_index"] = idx
+                    self._save_pool(pool)
+                    return True
+        return False
 
     def rotate(self) -> dict:
         """Avança para o próximo token válido. Retorna info."""

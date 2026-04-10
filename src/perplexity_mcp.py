@@ -247,6 +247,39 @@ def get_active_client():
     return client_manager.default_client
 
 
+def _resolve_runtime_token() -> Optional[str]:
+    """Resolve o token que este worker deve usar agora."""
+    current_token = token_manager.get_current_token() if token_manager else None
+    if current_token:
+        return current_token
+
+    env_token = os.getenv("PERPLEXITY_SESSION_TOKEN") or PERPLEXITY_SESSION_TOKEN
+    if env_token:
+        return env_token
+
+    return client_manager.session_token or None
+
+
+def _ensure_runtime_client(force: bool = False):
+    """
+    Sincroniza o client_manager com o token persistido.
+    Necessário em produção com múltiplos workers do Gunicorn.
+    """
+    desired_token = _resolve_runtime_token()
+    active_client = get_active_client()
+
+    if not desired_token:
+        if force or active_client is not None or client_manager.session_token:
+            client_manager.init_default(None)
+        return None
+
+    if force or active_client is None or client_manager.session_token != desired_token:
+        client_manager.init_default(desired_token)
+        logger.info("🔄 Cliente sincronizado com o token atual do pool")
+
+    return get_active_client()
+
+
 def _get_auth_retry_limit() -> int:
     """Busca simples: tentativa inicial + uma tentativa após refresh automático."""
     return 2 if token_manager else 1
@@ -337,7 +370,7 @@ def _runtime_credentials_status() -> Dict[str, Any]:
     pool_status = token_manager.get_pool_status() if token_manager else {}
     return {
         "configured": bool(token_manager and token_manager.get_current_token()),
-        "client_ready": get_active_client() is not None,
+        "client_ready": _ensure_runtime_client() is not None,
         "token_count": pool_status.get("total", 0),
         "has_complementary_cookies": pool_status.get("has_complementary_cookies", False),
         "cookies_status": pool_status.get("cookies_status", "unknown"),
@@ -649,7 +682,7 @@ def health_check():
     # Determina status geral
     checks = {
         "scraper": SCRAPER_AVAILABLE,
-        "client": get_active_client() is not None,
+        "client": _ensure_runtime_client() is not None,
         "token_manager": token_manager is not None and len(token_manager.accounts) > 0,
         "perplexity_connectivity": perplexity_reachable
     }
@@ -716,9 +749,10 @@ def credentials_save():
             "message": result.get("message", "Falha ao salvar credencial."),
         }), 400
 
-    current = token_manager.get_current_token()
-    if current:
-        client_manager.init_default(current)
+    saved_token_id = result.get("token_id")
+    if saved_token_id:
+        token_manager.set_current_token(saved_token_id)
+    _ensure_runtime_client(force=True)
 
     runtime = reset_runtime_conversations(save_existing=True)
     return jsonify({
@@ -758,13 +792,13 @@ def credentials_test():
     if not test_query:
         test_query = "Que horas são agora em Brasília? Responda em uma frase curta."
 
-    client_manager.init_default(current)
+    _ensure_runtime_client(force=True)
     last_error = None
     max_retries = _get_auth_retry_limit()
 
     for attempt in range(max_retries):
         try:
-            active_client = get_active_client()
+            active_client = _ensure_runtime_client()
             if active_client is None:
                 raise RuntimeError("Cliente não inicializado.")
 
@@ -809,14 +843,12 @@ def credentials_test():
                 if recovery_action:
                     continue
 
-            client_manager.init_default(None)
             return jsonify({
                 "success": False,
                 "message": f"Teste real falhou: {e}",
                 "status": _runtime_credentials_status(),
             }), 400
 
-    client_manager.init_default(None)
     return jsonify({
         "success": False,
         "message": f"Teste real falhou após {max_retries} tentativa(s): {last_error}",
@@ -1251,7 +1283,7 @@ def search_stream():
         if not query:
             return jsonify({"error": "Query required"}), 400
 
-        active_client = get_active_client()
+        active_client = _ensure_runtime_client()
         if not SCRAPER_AVAILABLE or active_client is None:
              return jsonify({"error": "Service unavailable"}), 503
 
@@ -1291,7 +1323,9 @@ def search_stream():
             for attempt in range(max_retries):
                 try:
                     # Recupera (ou recria) conversa dentro do loop para garantir cliente atualizado
-                    current_client = get_active_client()
+                    current_client = _ensure_runtime_client()
+                    if current_client is None:
+                        raise RuntimeError("Cliente não inicializado.")
                     if user_id in active_conversations:
                         conversation = active_conversations[user_id]
                     else:
@@ -1527,7 +1561,7 @@ def search():
             }), 503
         
         # Verifica se o cliente foi inicializado
-        active_client = get_active_client()
+        active_client = _ensure_runtime_client()
         if active_client is None:
             return jsonify({
                 "error": "Cliente não inicializado",
@@ -1547,7 +1581,7 @@ def search():
         
         for attempt in range(max_retries):
             try:
-                active_client = get_active_client()
+                active_client = _ensure_runtime_client()
                 
                 # Verifica se já existe conversa ativa para este usuário
                 conversation = active_conversations.get(user_id)
@@ -1985,7 +2019,7 @@ def vision():
         logger.info(f"[VISION] Query: {validated.query[:50]}... | Model: {validated.model}")
         
         # Verifica scraper
-        active_client = get_active_client()
+        active_client = _ensure_runtime_client()
         if not SCRAPER_AVAILABLE or active_client is None:
             return jsonify({
                 "error": "Scraper não disponível",
@@ -2040,7 +2074,7 @@ def diagnostics():
     
     # Checa Autenticação Perplexity
     try:
-        active_client = get_active_client()
+        active_client = _ensure_runtime_client()
         if SCRAPER_AVAILABLE and active_client is not None:
              result['perplexity_auth'] = "configured"
         else:

@@ -83,6 +83,15 @@ class HTTPClient:
             **DEFAULT_HEADERS,
             "Referer": f"{API_BASE_URL}/",
             "Origin": API_BASE_URL,
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8",
+            "sec-ch-ua": '"Not(A:Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "x-app-apiclient": "default",
+            "x-app-apiversion": "2.18",
         }
         cookies: dict[str, str] = {SESSION_COOKIE_NAME: self._session_token}
 

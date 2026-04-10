@@ -141,7 +141,16 @@ class HTTPClient:
                 response_body = None
 
         if status_code == 403:
-            raise AuthenticationError from error
+            detail = f"{context}HTTP 403"
+            if url:
+                detail += f" at {url}"
+            if response_body:
+                snippet = response_body.strip().replace("\n", " ")
+                if len(snippet) > 160:
+                    snippet = snippet[:157] + "..."
+                if snippet:
+                    detail += f" | body={snippet}"
+            raise AuthenticationError(detail) from error
         if status_code == 429:
             raise RateLimitError from error
         if status_code is not None:

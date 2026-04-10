@@ -565,25 +565,52 @@ class TokenManager:
 
         return "error", f"Status inesperado: {resp.status_code}"
 
+    def _capture_cookie_values(self, cookie_source) -> int:
+        """Captura cookies complementares de um cookie jar e atualiza o pool root."""
+        if cookie_source is None or not hasattr(cookie_source, "get"):
+            return 0
+
+        pool = self._load_pool()
+        updated = 0
+
+        for name in COMPLEMENTARY_COOKIES:
+            try:
+                val = cookie_source.get(name)
+            except Exception:
+                val = None
+
+            if val and pool["cookies"].get(name) != val:
+                pool["cookies"][name] = val
+                updated += 1
+                logger.debug(f"🍪 Cookie atualizado: {name}")
+
+        if updated:
+            pool["cookies_updated_at"] = datetime.now().isoformat()
+            pool["cookies_status"] = "ok"
+            self._save_pool(pool)
+
+        return updated
+
     def _capture_response_cookies(self, response):
         """Captura cookies complementares da resposta HTTP e atualiza root do pool."""
         try:
             if not hasattr(response, 'cookies'):
                 return
-            pool = self._load_pool()
-            updated = False
-            for name in COMPLEMENTARY_COOKIES:
-                val = response.cookies.get(name)
-                if val and pool["cookies"].get(name) != val:
-                    pool["cookies"][name] = val
-                    updated = True
-                    logger.debug(f"🍪 Cookie atualizado: {name}")
-            if updated:
-                pool["cookies_updated_at"] = datetime.now().isoformat()
-                pool["cookies_status"] = "ok"
-                self._save_pool(pool)
+            self._capture_cookie_values(response.cookies)
         except Exception as e:
             logger.debug(f"Aviso ao capturar cookies: {e}")
+
+    def capture_session_cookies(self, session_or_cookies) -> int:
+        """
+        Persiste cookies complementares da sessão viva.
+        Isso permite bootstrap com session_token only e aprendizado automático de cookies.
+        """
+        try:
+            cookie_source = getattr(session_or_cookies, "cookies", session_or_cookies)
+            return self._capture_cookie_values(cookie_source)
+        except Exception as e:
+            logger.debug(f"Aviso ao capturar cookies da sessão: {e}")
+            return 0
 
     def validate_token(self, token: str = None) -> bool:
         """Valida token via probe real. Retorna True/False."""

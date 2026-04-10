@@ -248,10 +248,8 @@ def get_active_client():
 
 
 def _get_auth_retry_limit() -> int:
-    """Uma busca sempre ganha ao menos uma tentativa de refresh automático."""
-    if not token_manager:
-        return 1
-    return 3 if len(token_manager.accounts) > 1 else 2
+    """Busca simples: tentativa inicial + uma tentativa após refresh automático."""
+    return 2 if token_manager else 1
 
 
 def _is_auth_error(err_str: str) -> bool:
@@ -268,8 +266,11 @@ def _classify_auth_failure(err_str: str) -> str:
 
 def _recover_auth_failure(user_id: str, err_str: str, attempt: int, max_retries: int, route_name: str) -> Optional[str]:
     """
-    Tenta recuperar automaticamente falhas de autenticação do Perplexity.
-    Ordem: refresh da sessão atual e, se não resolver, rotação para outra conta.
+    Fluxo simples:
+    1) token atual falhou
+    2) tenta renovar com cookies já aprendidos
+    3) se renovar, tenta de novo
+    4) se não renovar, falha
     """
     if not token_manager or attempt >= max_retries - 1:
         return None
@@ -301,14 +302,28 @@ def _recover_auth_failure(user_id: str, err_str: str, attempt: int, max_retries:
             logger.warning(f"🔄 Auth falhou em {route_name}; sessão renovada automaticamente")
             return "refresh"
 
-    next_token, _ = token_manager.get_next_valid_token()
-    if next_token and next_token != current_token:
-        client_manager.init_default(next_token)
-        active_conversations.pop(user_id, None)
-        logger.warning(f"🔄 Auth falhou em {route_name}; alternando para outra credencial")
-        return "rotate"
-
     return None
+
+
+def _persist_client_session_cookies() -> int:
+    """Salva cookies complementares aprendidos pela sessão HTTP atual."""
+    if not token_manager:
+        return 0
+
+    client = get_active_client()
+    http_client = getattr(client, "_http", None) if client else None
+    session = getattr(http_client, "_session", None) if http_client else None
+    if not session:
+        return 0
+
+    try:
+        updated = token_manager.capture_session_cookies(session)
+        if updated:
+            logger.info(f"🍪 Cookies complementares aprendidos automaticamente: {updated}")
+        return updated
+    except Exception as e:
+        logger.debug(f"Aviso ao persistir cookies da sessão: {e}")
+        return 0
 
 
 def _runtime_credentials_status() -> Dict[str, Any]:
@@ -1292,6 +1307,7 @@ def search_stream():
                         "conversation_id": user_id,
                         "backend_uuid": getattr(conversation, 'backend_uuid', None)
                     }
+                    _persist_client_session_cookies()
                     yield f"data: {json.dumps(final_payload)}\n\n"
                     
                     # Salva histórico
@@ -1318,10 +1334,7 @@ def search_stream():
                         if recovery_action == "refresh":
                             yield f"data: {json.dumps({'status': '🔄 Sessão renovada automaticamente. Tentando novamente...'})}\n\n"
                             continue
-                        if recovery_action == "rotate":
-                            yield f"data: {json.dumps({'status': '🔄 Token expirado. Trocando conta...'})}\n\n"
-                            continue
-                            
+                             
                     logger.error(f"Erro stream final: {e}")
                     yield f"data: {json.dumps({'error': str(e)})}\n\n"
                     break
@@ -1606,6 +1619,7 @@ def search():
                         "message_count": conversation_message_counts.get(user_id, 0)
                     }
                 }
+                _persist_client_session_cookies()
 
                 # Limpeza de arquivos temporários
                 for fpath in files_to_upload:

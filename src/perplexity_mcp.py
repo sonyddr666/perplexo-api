@@ -189,6 +189,41 @@ class ClientManager:
         self.default_client: Optional[Perplexity] = None
         self.location_clients: Dict[str, Perplexity] = {} # "lat,lon" -> client
         self.session_token = ""
+
+    def apply_extra_cookies(self, extra_cookies: dict = None) -> int:
+        """Aplica cookies complementares aprendidos ao session object do scraper."""
+        if not extra_cookies or not self.default_client:
+            return 0
+
+        http_client = getattr(self.default_client, "_http", None)
+        session = getattr(http_client, "_session", None) if http_client else None
+        cookie_jar = getattr(session, "cookies", None) if session else None
+        if cookie_jar is None:
+            return 0
+
+        updated = 0
+        for name, value in (extra_cookies or {}).items():
+            if not value or name == "__Secure-next-auth.session-token":
+                continue
+
+            try:
+                current = cookie_jar.get(name)
+            except Exception:
+                current = None
+
+            if current == value:
+                continue
+
+            try:
+                cookie_jar.set(name, value)
+                updated += 1
+            except Exception:
+                logger.debug(f"Aviso ao aplicar cookie complementar: {name}")
+
+        if updated:
+            logger.info(f"🍪 Cookies complementares aplicados ao cliente: {updated}")
+
+        return updated
         
     def init_default(self, token: str, extra_cookies: dict = None):
         self.default_client = None
@@ -199,6 +234,12 @@ class ClientManager:
             logger.info("🧹 Cliente Default limpo")
             return
 
+        if extra_cookies is None and token_manager:
+            try:
+                extra_cookies = token_manager.get_complementary_cookies()
+            except Exception:
+                extra_cookies = None
+
         if SCRAPER_AVAILABLE and Perplexity and token != "seu_session_token_aqui":
             try:
                 # curl_cffi cuida do TLS fingerprint sozinho.
@@ -206,6 +247,7 @@ class ClientManager:
                 self.default_client = Perplexity(
                     session_token=token,
                 )
+                self.apply_extra_cookies(extra_cookies)
                 logger.info("✅ Cliente Default inicializado (session_token only)")
             except Exception as e:
                 logger.error(f"❌ Erro config default client: {e}")
@@ -260,6 +302,16 @@ def _resolve_runtime_token() -> Optional[str]:
     return client_manager.session_token or None
 
 
+def _resolve_runtime_cookies() -> Dict[str, str]:
+    """Cookies complementares persistidos que devem ser reaplicados ao cliente."""
+    if not token_manager:
+        return {}
+    try:
+        return token_manager.get_complementary_cookies() or {}
+    except Exception:
+        return {}
+
+
 def _ensure_runtime_client(force: bool = False):
     """
     Sincroniza o client_manager com o token persistido.
@@ -274,8 +326,10 @@ def _ensure_runtime_client(force: bool = False):
         return None
 
     if force or active_client is None or client_manager.session_token != desired_token:
-        client_manager.init_default(desired_token)
+        client_manager.init_default(desired_token, extra_cookies=_resolve_runtime_cookies())
         logger.info("🔄 Cliente sincronizado com o token atual do pool")
+    else:
+        client_manager.apply_extra_cookies(_resolve_runtime_cookies())
 
     return get_active_client()
 

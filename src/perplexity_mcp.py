@@ -261,6 +261,10 @@ def _classify_auth_failure(err_str: str) -> str:
     err_str = (err_str or "").lower()
     if any(term in err_str for term in ("cloudflare", "cf_clearance", "cf blocked", "cf_blocked")):
         return "cf_blocked"
+    if "401" in err_str or "unauthorized" in err_str:
+        return "session_expired"
+    if "403" in err_str or "forbidden" in err_str:
+        return "session_rejected"
     return "session_expired"
 
 
@@ -282,8 +286,10 @@ def _recover_auth_failure(user_id: str, err_str: str, attempt: int, max_retries:
     if current_token:
         if failure_reason == "cf_blocked":
             token_manager.mark_cf_blocked(token=current_token)
-        else:
+        elif failure_reason == "session_expired":
             token_manager.mark_invalid(token=current_token, reason=failure_reason)
+        else:
+            logger.warning(f"⚠️ Auth ambígua em {route_name}; token atual não será invalidado automaticamente")
 
     refresh_result = None
     try:

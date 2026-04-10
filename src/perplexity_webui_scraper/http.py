@@ -256,7 +256,15 @@ class HTTPClient:
         if self._max_init_query_length and len(query) > self._max_init_query_length:
             query = query[: self._max_init_query_length]
 
-        self.get(ENDPOINT_SEARCH_INIT, params={"q": query})
+        try:
+            self.get(ENDPOINT_SEARCH_INIT, params={"q": query})
+        except AuthenticationError as error:
+            logger.warning("init_search blocked; continuing directly to ask | {}", error)
+        except HTTPError as error:
+            if error.status_code == 403:
+                logger.warning("init_search returned 403; continuing directly to ask | {}", error)
+                return
+            raise
 
     def stream_ask(self, payload: dict[str, Any]) -> Generator[bytes, None, None]:
         """Stream a prompt request to the ask endpoint."""

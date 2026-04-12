@@ -36,6 +36,7 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pydantic import BaseModel, Field
@@ -54,6 +55,7 @@ logger = logging.getLogger(__name__)
 # ============= CONFIGURAÇÃO =============
 
 app = Flask(__name__)
+CORS(app)
 
 # Rate limiting
 limiter = Limiter(

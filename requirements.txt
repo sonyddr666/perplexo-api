@@ -3,6 +3,9 @@
 # Server Flask para MCP
 flask>=3.0.0
 
+# CORS para uso via browser (skill panels, frontends)
+flask-cors>=4.0.0
+
 # WSGI para produção
 gunicorn>=23.0.0
 
